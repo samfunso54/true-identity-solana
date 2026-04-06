@@ -79,9 +79,13 @@ const Verify = () => {
         if (p >= 100) {
           clearInterval(interval);
           const passed = Math.random() > 0.15; // 85% pass
-          setResult(passed ? "verified" : "failed");
-          if (walletAddr) setStatus(walletAddr, passed ? "verified" : "failed");
-          setStep("result");
+          if (passed) {
+            setStep("storing");
+          } else {
+            setResult("failed");
+            if (walletAddr) setStatus(walletAddr, "failed");
+            setStep("result");
+          }
           stopCamera();
           return 100;
         }
@@ -90,6 +94,37 @@ const Verify = () => {
     }, 60);
     return () => clearInterval(interval);
   }, [step, walletAddr, setStatus, stopCamera]);
+
+  // Store hash on Solana after liveness passes
+  useEffect(() => {
+    if (step !== "storing" || !walletAddr || !publicKey || !signTransaction) return;
+    let cancelled = false;
+
+    const store = async () => {
+      try {
+        toast.info("Generating verification hash…");
+        const hash = await generateVerificationHash(walletAddr);
+        toast.info("Please approve the transaction in your wallet");
+        const res = await storeHashOnSolana(hash, publicKey, signTransaction);
+        if (cancelled) return;
+        setHashResult(res);
+        setResult("verified");
+        setStatus(walletAddr, "verified");
+        toast.success("Verification hash stored on Solana!");
+      } catch (err: any) {
+        if (cancelled) return;
+        console.error("Failed to store hash on Solana:", err);
+        toast.error(err?.message || "Failed to store hash on-chain. You can retry.");
+        setResult("failed");
+        setStatus(walletAddr, "failed");
+      } finally {
+        if (!cancelled) setStep("result");
+      }
+    };
+
+    store();
+    return () => { cancelled = true; };
+  }, [step, walletAddr, publicKey, signTransaction, setStatus]);
 
   const retry = () => {
     setResult(null);
