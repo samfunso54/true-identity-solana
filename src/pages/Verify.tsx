@@ -62,6 +62,9 @@ const Verify = () => {
     streamRef.current = null;
   }, []);
 
+  // Track completed challenge IDs
+  const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
+
   // Run through challenges automatically
   useEffect(() => {
     if (step !== "challenge") return;
@@ -70,6 +73,7 @@ const Verify = () => {
       return;
     }
     const timer = setTimeout(() => {
+      setCompletedChallenges((prev) => [...prev, challenges[challengeIdx].id]);
       setChallengeIdx((i) => i + 1);
     }, challenges[challengeIdx].duration);
     return () => clearTimeout(timer);
