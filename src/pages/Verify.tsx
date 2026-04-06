@@ -161,8 +161,8 @@ const Verify = () => {
 
         {/* Steps indicator */}
         <div className="flex items-center justify-center gap-2">
-          {["Connect", "Camera", "Challenge", "Processing", "Result"].map((label, i) => {
-            const stepKeys: Step[] = ["connect", "camera", "challenge", "processing", "result"];
+          {["Connect", "Camera", "Challenge", "Processing", "On-Chain", "Result"].map((label, i) => {
+            const stepKeys: Step[] = ["connect", "camera", "challenge", "processing", "storing", "result"];
             const idx = stepKeys.indexOf(step);
             const isActive = i === idx;
             const isDone = i < idx;
