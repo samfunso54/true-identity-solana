@@ -179,7 +179,7 @@ const Verify = () => {
                 >
                   {isDone ? "✓" : i + 1}
                 </div>
-                {i < 4 && <div className={`w-6 h-0.5 ${isDone ? "bg-primary/40" : "bg-border"}`} />}
+                {i < 5 && <div className={`w-6 h-0.5 ${isDone ? "bg-primary/40" : "bg-border"}`} />}
               </div>
             );
           })}
