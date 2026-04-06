@@ -142,6 +142,7 @@ const Verify = () => {
     setResult(null);
     setHashResult(null);
     setChallengeIdx(0);
+    setCompletedChallenges([]);
     setProgress(0);
     setStep("camera");
   };

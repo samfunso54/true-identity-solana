@@ -21,6 +21,10 @@ const Developer = () => {
 
   const handleGenerate = () => {
     const key = generateApiKey();
+    if (!key) {
+      toast.error("Rate limit reached or max keys (5) exceeded. Wait a few seconds.");
+      return;
+    }
     setShowKey(key);
     toast.success("API key generated!");
   };
