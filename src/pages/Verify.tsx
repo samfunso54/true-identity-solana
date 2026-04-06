@@ -19,7 +19,7 @@ const challenges = [
 ];
 
 const Verify = () => {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
   const { getStatus, setStatus } = useVerification();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -31,6 +31,7 @@ const Verify = () => {
   const [challengeIdx, setChallengeIdx] = useState(0);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<"verified" | "failed" | null>(null);
+  const [hashResult, setHashResult] = useState<StoreHashResult | null>(null);
 
   useEffect(() => {
     if (connected && step === "connect") setStep("camera");
