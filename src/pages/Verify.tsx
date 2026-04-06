@@ -250,6 +250,16 @@ const Verify = () => {
             </div>
           )}
 
+          {step === "storing" && (
+            <div className="text-center space-y-6 w-full max-w-sm">
+              <Loader2 className="h-16 w-16 text-primary mx-auto animate-spin" />
+              <h2 className="text-xl font-semibold">Storing On-Chain</h2>
+              <p className="text-sm text-muted-foreground">
+                Approve the transaction in your wallet to store your verification hash on Solana.
+              </p>
+            </div>
+          )}
+
           {step === "result" && (
             <div className="text-center space-y-4">
               {result === "verified" ? (
@@ -257,6 +267,26 @@ const Verify = () => {
                   <CheckCircle className="h-20 w-20 text-primary mx-auto" />
                   <h2 className="text-2xl font-bold text-primary">Verified!</h2>
                   <p className="text-muted-foreground text-sm">Your identity has been verified on-chain.</p>
+                  {hashResult && (
+                    <div className="bg-muted/50 rounded-lg p-4 text-left space-y-2 text-xs max-w-sm mx-auto">
+                      <p className="text-muted-foreground">
+                        <span className="font-semibold text-foreground">TX Signature:</span>{" "}
+                        <code className="text-primary break-all">{hashResult.signature.slice(0, 20)}…</code>
+                      </p>
+                      <p className="text-muted-foreground">
+                        <span className="font-semibold text-foreground">Hash:</span>{" "}
+                        <code className="text-primary break-all">{hashResult.hash.slice(0, 24)}…</code>
+                      </p>
+                      <a
+                        href={hashResult.explorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        View on Solana Explorer <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
                   <Button asChild>
                     <Link to="/dashboard">View Dashboard</Link>
                   </Button>
