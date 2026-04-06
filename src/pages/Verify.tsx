@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { Camera, Eye, RotateCcw, Smile, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Camera, Eye, RotateCcw, Smile, CheckCircle, XCircle, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/GlassCard";
 import { Progress } from "@/components/ui/progress";
 import { useVerification, VerificationStatus } from "@/contexts/VerificationContext";
 import { Link } from "react-router-dom";
+import { generateVerificationHash, storeHashOnSolana, StoreHashResult } from "@/lib/solana-hash";
+import { toast } from "sonner";
 
-type Step = "connect" | "camera" | "challenge" | "processing" | "result";
+type Step = "connect" | "camera" | "challenge" | "processing" | "storing" | "result";
 
 const challenges = [
   { id: "blink", label: "Blink twice", icon: Eye, duration: 4000 },
