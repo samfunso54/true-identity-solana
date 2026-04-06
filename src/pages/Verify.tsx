@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { Camera, Eye, RotateCcw, Smile, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { Camera, Eye, RotateCcw, Smile, CheckCircle, XCircle, Loader2, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/GlassCard";
 import { Progress } from "@/components/ui/progress";
 import { useVerification, VerificationStatus } from "@/contexts/VerificationContext";
 import { Link } from "react-router-dom";
+import { generateVerificationHash, storeHashOnSolana, StoreHashResult } from "@/lib/solana-hash";
+import { toast } from "sonner";
 
-type Step = "connect" | "camera" | "challenge" | "processing" | "result";
+type Step = "connect" | "camera" | "challenge" | "processing" | "storing" | "result";
 
 const challenges = [
   { id: "blink", label: "Blink twice", icon: Eye, duration: 4000 },
@@ -17,7 +19,7 @@ const challenges = [
 ];
 
 const Verify = () => {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signTransaction } = useWallet();
   const { getStatus, setStatus } = useVerification();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -29,6 +31,7 @@ const Verify = () => {
   const [challengeIdx, setChallengeIdx] = useState(0);
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<"verified" | "failed" | null>(null);
+  const [hashResult, setHashResult] = useState<StoreHashResult | null>(null);
 
   useEffect(() => {
     if (connected && step === "connect") setStep("camera");
@@ -76,9 +79,13 @@ const Verify = () => {
         if (p >= 100) {
           clearInterval(interval);
           const passed = Math.random() > 0.15; // 85% pass
-          setResult(passed ? "verified" : "failed");
-          if (walletAddr) setStatus(walletAddr, passed ? "verified" : "failed");
-          setStep("result");
+          if (passed) {
+            setStep("storing");
+          } else {
+            setResult("failed");
+            if (walletAddr) setStatus(walletAddr, "failed");
+            setStep("result");
+          }
           stopCamera();
           return 100;
         }
@@ -88,8 +95,40 @@ const Verify = () => {
     return () => clearInterval(interval);
   }, [step, walletAddr, setStatus, stopCamera]);
 
+  // Store hash on Solana after liveness passes
+  useEffect(() => {
+    if (step !== "storing" || !walletAddr || !publicKey || !signTransaction) return;
+    let cancelled = false;
+
+    const store = async () => {
+      try {
+        toast.info("Generating verification hash…");
+        const hash = await generateVerificationHash(walletAddr);
+        toast.info("Please approve the transaction in your wallet");
+        const res = await storeHashOnSolana(hash, publicKey, signTransaction);
+        if (cancelled) return;
+        setHashResult(res);
+        setResult("verified");
+        setStatus(walletAddr, "verified");
+        toast.success("Verification hash stored on Solana!");
+      } catch (err: any) {
+        if (cancelled) return;
+        console.error("Failed to store hash on Solana:", err);
+        toast.error(err?.message || "Failed to store hash on-chain. You can retry.");
+        setResult("failed");
+        setStatus(walletAddr, "failed");
+      } finally {
+        if (!cancelled) setStep("result");
+      }
+    };
+
+    store();
+    return () => { cancelled = true; };
+  }, [step, walletAddr, publicKey, signTransaction, setStatus]);
+
   const retry = () => {
     setResult(null);
+    setHashResult(null);
     setChallengeIdx(0);
     setProgress(0);
     setStep("camera");
@@ -122,8 +161,8 @@ const Verify = () => {
 
         {/* Steps indicator */}
         <div className="flex items-center justify-center gap-2">
-          {["Connect", "Camera", "Challenge", "Processing", "Result"].map((label, i) => {
-            const stepKeys: Step[] = ["connect", "camera", "challenge", "processing", "result"];
+          {["Connect", "Camera", "Challenge", "Processing", "On-Chain", "Result"].map((label, i) => {
+            const stepKeys: Step[] = ["connect", "camera", "challenge", "processing", "storing", "result"];
             const idx = stepKeys.indexOf(step);
             const isActive = i === idx;
             const isDone = i < idx;
@@ -140,7 +179,7 @@ const Verify = () => {
                 >
                   {isDone ? "✓" : i + 1}
                 </div>
-                {i < 4 && <div className={`w-6 h-0.5 ${isDone ? "bg-primary/40" : "bg-border"}`} />}
+                {i < 5 && <div className={`w-6 h-0.5 ${isDone ? "bg-primary/40" : "bg-border"}`} />}
               </div>
             );
           })}
@@ -211,6 +250,16 @@ const Verify = () => {
             </div>
           )}
 
+          {step === "storing" && (
+            <div className="text-center space-y-6 w-full max-w-sm">
+              <Loader2 className="h-16 w-16 text-primary mx-auto animate-spin" />
+              <h2 className="text-xl font-semibold">Storing On-Chain</h2>
+              <p className="text-sm text-muted-foreground">
+                Approve the transaction in your wallet to store your verification hash on Solana.
+              </p>
+            </div>
+          )}
+
           {step === "result" && (
             <div className="text-center space-y-4">
               {result === "verified" ? (
@@ -218,6 +267,26 @@ const Verify = () => {
                   <CheckCircle className="h-20 w-20 text-primary mx-auto" />
                   <h2 className="text-2xl font-bold text-primary">Verified!</h2>
                   <p className="text-muted-foreground text-sm">Your identity has been verified on-chain.</p>
+                  {hashResult && (
+                    <div className="bg-muted/50 rounded-lg p-4 text-left space-y-2 text-xs max-w-sm mx-auto">
+                      <p className="text-muted-foreground">
+                        <span className="font-semibold text-foreground">TX Signature:</span>{" "}
+                        <code className="text-primary break-all">{hashResult.signature.slice(0, 20)}…</code>
+                      </p>
+                      <p className="text-muted-foreground">
+                        <span className="font-semibold text-foreground">Hash:</span>{" "}
+                        <code className="text-primary break-all">{hashResult.hash.slice(0, 24)}…</code>
+                      </p>
+                      <a
+                        href={hashResult.explorerUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-primary hover:underline"
+                      >
+                        View on Solana Explorer <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  )}
                   <Button asChild>
                     <Link to="/dashboard">View Dashboard</Link>
                   </Button>
