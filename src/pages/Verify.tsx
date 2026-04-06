@@ -18,6 +18,11 @@ const challenges = [
   { id: "smile", label: "Smile", icon: Smile, duration: 3000 },
 ];
 
+// Generate a challenge proof binding the session to completed challenges
+function buildChallengeProof(completedChallenges: string[], wallet: string): string {
+  return `${wallet}:${completedChallenges.join(",")}:${challenges.length}`;
+}
+
 const Verify = () => {
   const { publicKey, connected, signTransaction } = useWallet();
   const { getStatus, setStatus } = useVerification();
