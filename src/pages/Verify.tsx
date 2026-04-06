@@ -111,19 +111,22 @@ const Verify = () => {
 
     const store = async () => {
       try {
+        const challengeProof = buildChallengeProof(completedChallenges, walletAddr);
         toast.info("Generating verification hash…");
-        const hash = await generateVerificationHash(walletAddr);
+        const { hash, nonce } = await generateVerificationHash(walletAddr, challengeProof);
         toast.info("Please approve the transaction in your wallet");
-        const res = await storeHashOnSolana(hash, publicKey, signTransaction);
+        const res = await storeHashOnSolana(hash, nonce, publicKey, signTransaction);
         if (cancelled) return;
         setHashResult(res);
         setResult("verified");
-        setStatus(walletAddr, "verified");
+        setStatus(walletAddr, "verified", res.signature);
         toast.success("Verification hash stored on Solana!");
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (cancelled) return;
-        console.error("Failed to store hash on Solana:", err);
-        toast.error(err?.message || "Failed to store hash on-chain. You can retry.");
+        // Sanitize error logging — never log full error objects that may contain sensitive data
+        const message = err instanceof Error ? err.message : "Unknown error";
+        console.error("Failed to store hash on Solana:", message);
+        toast.error(message || "Failed to store hash on-chain. You can retry.");
         setResult("failed");
         setStatus(walletAddr, "failed");
       } finally {
@@ -133,7 +136,7 @@ const Verify = () => {
 
     store();
     return () => { cancelled = true; };
-  }, [step, walletAddr, publicKey, signTransaction, setStatus]);
+  }, [step, walletAddr, publicKey, signTransaction, setStatus, completedChallenges]);
 
   const retry = () => {
     setResult(null);
