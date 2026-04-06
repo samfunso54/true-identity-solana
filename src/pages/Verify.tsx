@@ -128,6 +128,7 @@ const Verify = () => {
 
   const retry = () => {
     setResult(null);
+    setHashResult(null);
     setChallengeIdx(0);
     setProgress(0);
     setStep("camera");
