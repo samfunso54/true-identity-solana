@@ -18,14 +18,13 @@ const challenges = [
   { id: "smile", label: "Smile", icon: Smile, duration: 3000 },
 ];
 
-// Generate a challenge proof binding the session to completed challenges
 function buildChallengeProof(completedChallenges: string[], wallet: string): string {
   return `${wallet}:${completedChallenges.join(",")}:${challenges.length}`;
 }
 
 const Verify = () => {
   const { publicKey, connected, signTransaction } = useWallet();
-  const { getStatus, setStatus } = useVerification();
+  const { getStatus, setStatus, fetchStatus, persistVerification } = useVerification();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -37,6 +36,14 @@ const Verify = () => {
   const [progress, setProgress] = useState(0);
   const [result, setResult] = useState<"verified" | "failed" | null>(null);
   const [hashResult, setHashResult] = useState<StoreHashResult | null>(null);
+  const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
+
+  // Check backend status on mount
+  useEffect(() => {
+    if (walletAddr) {
+      fetchStatus(walletAddr);
+    }
+  }, [walletAddr, fetchStatus]);
 
   useEffect(() => {
     if (connected && step === "connect") setStep("camera");
@@ -53,7 +60,7 @@ const Verify = () => {
       setStep("challenge");
       setChallengeIdx(0);
     } catch {
-      // camera denied
+      toast.error("Camera access denied. Please allow camera access to verify.");
     }
   }, []);
 
@@ -62,10 +69,7 @@ const Verify = () => {
     streamRef.current = null;
   }, []);
 
-  // Track completed challenge IDs
-  const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
-
-  // Run through challenges automatically
+  // Run through challenges
   useEffect(() => {
     if (step !== "challenge") return;
     if (challengeIdx >= challenges.length) {
@@ -79,7 +83,7 @@ const Verify = () => {
     return () => clearTimeout(timer);
   }, [step, challengeIdx]);
 
-  // Processing simulation
+  // Processing — liveness always passes (server validates the challenge proof)
   useEffect(() => {
     if (step !== "processing") return;
     setProgress(0);
@@ -87,14 +91,7 @@ const Verify = () => {
       setProgress((p) => {
         if (p >= 100) {
           clearInterval(interval);
-          const passed = Math.random() > 0.15; // 85% pass
-          if (passed) {
-            setStep("storing");
-          } else {
-            setResult("failed");
-            if (walletAddr) setStatus(walletAddr, "failed");
-            setStep("result");
-          }
+          setStep("storing");
           stopCamera();
           return 100;
         }
@@ -102,9 +99,9 @@ const Verify = () => {
       });
     }, 60);
     return () => clearInterval(interval);
-  }, [step, walletAddr, setStatus, stopCamera]);
+  }, [step, stopCamera]);
 
-  // Store hash on Solana after liveness passes
+  // Store hash on Solana + persist to backend
   useEffect(() => {
     if (step !== "storing" || !walletAddr || !publicKey || !signTransaction) return;
     let cancelled = false;
@@ -117,13 +114,16 @@ const Verify = () => {
         toast.info("Please approve the transaction in your wallet");
         const res = await storeHashOnSolana(hash, nonce, publicKey, signTransaction);
         if (cancelled) return;
+
+        // Persist to backend
+        await persistVerification(walletAddr, res.signature, res.hash, res.nonce, challengeProof);
+
         setHashResult(res);
         setResult("verified");
         setStatus(walletAddr, "verified", res.signature);
         toast.success("Verification hash stored on Solana!");
       } catch (err: unknown) {
         if (cancelled) return;
-        // Sanitize error logging — never log full error objects that may contain sensitive data
         const message = err instanceof Error ? err.message : "Unknown error";
         console.error("Failed to store hash on Solana:", message);
         toast.error(message || "Failed to store hash on-chain. You can retry.");
@@ -136,7 +136,7 @@ const Verify = () => {
 
     store();
     return () => { cancelled = true; };
-  }, [step, walletAddr, publicKey, signTransaction, setStatus, completedChallenges]);
+  }, [step, walletAddr, publicKey, signTransaction, setStatus, completedChallenges, persistVerification]);
 
   const retry = () => {
     setResult(null);
@@ -308,7 +308,7 @@ const Verify = () => {
                 <>
                   <XCircle className="h-20 w-20 text-destructive mx-auto" />
                   <h2 className="text-2xl font-bold text-destructive">Verification Failed</h2>
-                  <p className="text-muted-foreground text-sm">Liveness check did not pass. Please try again.</p>
+                  <p className="text-muted-foreground text-sm">Something went wrong. Please try again.</p>
                   <Button onClick={retry} variant="outline">
                     Retry Verification
                   </Button>
