@@ -61,14 +61,6 @@ export const VerificationProvider = ({ children }: { children: ReactNode }) => {
 
   const fetchStatus = useCallback(async (wallet: string): Promise<VerificationStatus> => {
     try {
-      const { data } = await supabase.functions.invoke("verify-status", {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-        body: null,
-      });
-      // Edge function uses query params, but supabase.functions.invoke doesn't support them easily
-      // Use direct fetch instead
-      const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID;
       const resp = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/verify-status?wallet=${encodeURIComponent(wallet)}`,
         {
