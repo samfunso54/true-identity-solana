@@ -108,7 +108,7 @@ const Index = () => (
       <div className="container flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <Shield className="h-4 w-4 text-primary" />
-          <span>VerifyID — Anti-Deepfake on Solana</span>
+          <span>Deephuman — Anti-Deepfake on Solana</span>
         </div>
         <div className="flex gap-6">
           <Link to="/docs" className="hover:text-foreground transition-colors">API Docs</Link>

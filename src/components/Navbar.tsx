@@ -27,7 +27,7 @@ export const Navbar = () => {
       <div className="container flex h-16 items-center justify-between">
         <Link to="/" className="flex items-center gap-2 text-primary font-bold text-lg">
           <Shield className="h-6 w-6" />
-          <span>VerifyID</span>
+          <span>Deephuman</span>
         </Link>
 
         <div className="hidden md:flex items-center gap-1">
