@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { Key, Copy, BarChart3, Shield } from "lucide-react";
 import { GlassCard } from "@/components/GlassCard";
 import { Button } from "@/components/ui/button";
@@ -7,22 +8,29 @@ import { useVerification } from "@/contexts/VerificationContext";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
 
-const mockUsage = [
-  { date: "2025-04-01", calls: 124 },
-  { date: "2025-04-02", calls: 210 },
-  { date: "2025-04-03", calls: 187 },
-  { date: "2025-04-04", calls: 302 },
-  { date: "2025-04-05", calls: 256 },
-];
-
 const Developer = () => {
-  const { apiKeys, generateApiKey } = useVerification();
+  const { publicKey } = useWallet();
+  const { apiKeys, fetchApiKeys, generateApiKey } = useVerification();
   const [showKey, setShowKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const walletAddr = publicKey?.toBase58() || "";
 
-  const handleGenerate = () => {
-    const key = generateApiKey();
+  useEffect(() => {
+    if (walletAddr) {
+      fetchApiKeys(walletAddr);
+    }
+  }, [walletAddr, fetchApiKeys]);
+
+  const handleGenerate = async () => {
+    if (!walletAddr) {
+      toast.error("Connect your wallet first");
+      return;
+    }
+    setLoading(true);
+    const key = await generateApiKey(walletAddr);
+    setLoading(false);
     if (!key) {
-      toast.error("Rate limit reached or max keys (5) exceeded. Wait a few seconds.");
+      toast.error("Max keys (5) reached or generation failed.");
       return;
     }
     setShowKey(key);
@@ -54,8 +62,8 @@ const Developer = () => {
               <Key className="h-5 w-5 text-primary" />
               <h3 className="font-semibold">API Keys</h3>
             </div>
-            <Button onClick={handleGenerate} size="sm">
-              Generate Key
+            <Button onClick={handleGenerate} size="sm" disabled={loading}>
+              {loading ? "Generating…" : "Generate Key"}
             </Button>
           </div>
 
@@ -63,20 +71,20 @@ const Developer = () => {
             <p className="text-sm text-muted-foreground">No API keys yet. Generate one to get started.</p>
           ) : (
             <div className="space-y-2">
-              {apiKeys.map((key, i) => (
-                <div key={i} className="flex items-center gap-2 bg-secondary/50 rounded-lg p-3">
+              {apiKeys.map((keyObj) => (
+                <div key={keyObj.id} className="flex items-center gap-2 bg-secondary/50 rounded-lg p-3">
                   <code className="text-xs text-primary flex-1 truncate">
-                    {showKey === key ? key : `${key.slice(0, 12)}${"•".repeat(20)}`}
+                    {showKey === keyObj.api_key ? keyObj.api_key : `${keyObj.api_key.slice(0, 12)}${"•".repeat(20)}`}
                   </code>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() => setShowKey(showKey === key ? null : key)}
+                    onClick={() => setShowKey(showKey === keyObj.api_key ? null : keyObj.api_key)}
                     className="text-xs"
                   >
-                    {showKey === key ? "Hide" : "Show"}
+                    {showKey === keyObj.api_key ? "Hide" : "Show"}
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => copyKey(key)} className="h-8 w-8">
+                  <Button variant="ghost" size="icon" onClick={() => copyKey(keyObj.api_key)} className="h-8 w-8">
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
@@ -86,33 +94,7 @@ const Developer = () => {
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Shield className="h-3 w-3" />
-            <span>Keys are shown once. Store them securely.</span>
-          </div>
-        </GlassCard>
-
-        {/* Usage Stats */}
-        <GlassCard className="space-y-4">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-primary" />
-            <h3 className="font-semibold">Usage (Last 5 Days)</h3>
-          </div>
-          <div className="space-y-2">
-            {mockUsage.map((day) => (
-              <div key={day.date} className="flex items-center gap-4">
-                <span className="text-xs text-muted-foreground w-24">{day.date}</span>
-                <div className="flex-1 bg-secondary rounded-full h-4 overflow-hidden">
-                  <div
-                    className="h-full bg-primary/60 rounded-full transition-all"
-                    style={{ width: `${(day.calls / 400) * 100}%` }}
-                  />
-                </div>
-                <span className="text-xs font-medium w-12 text-right">{day.calls}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex justify-between text-xs text-muted-foreground pt-2 border-t border-border/50">
-            <span>Total: {mockUsage.reduce((a, b) => a + b.calls, 0)} calls</span>
-            <Badge variant="outline" className="text-primary">Free Tier</Badge>
+            <span>Keys are stored securely. Max 5 active keys per wallet.</span>
           </div>
         </GlassCard>
 
@@ -126,7 +108,7 @@ const Developer = () => {
             </div>
             <div className="flex items-center gap-3">
               <Badge className="bg-warning/20 text-warning border-warning/30 font-mono text-xs">POST</Badge>
-              <code className="text-sm text-muted-foreground">/api/verify/initiate</code>
+              <code className="text-sm text-muted-foreground">/api/verify/complete</code>
             </div>
           </div>
           <Button asChild variant="outline" size="sm">

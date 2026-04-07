@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { Shield, CheckCircle, XCircle, Clock, Copy, ExternalLink } from "lucide-react";
@@ -10,10 +11,17 @@ import { toast } from "sonner";
 
 const Dashboard = () => {
   const { publicKey, connected } = useWallet();
-  const { getStatus, records } = useVerification();
+  const { getStatus, records, fetchStatus } = useVerification();
   const walletAddr = publicKey?.toBase58() || "";
   const status = walletAddr ? getStatus(walletAddr) : "not_verified";
   const record = records[walletAddr];
+
+  // Fetch from backend on mount
+  useEffect(() => {
+    if (walletAddr) {
+      fetchStatus(walletAddr);
+    }
+  }, [walletAddr, fetchStatus]);
 
   if (!connected) {
     return (
@@ -89,15 +97,17 @@ const Dashboard = () => {
                 Verified at: {new Date(record.timestamp).toLocaleString()}
               </p>
             )}
-            {status === "verified" && (
+            {status === "verified" && record?.txSignature && (
               <div className="space-y-2">
-                <p className="text-sm font-medium">Shareable Verification Link</p>
-                <div className="flex items-center gap-2 bg-secondary/50 rounded-lg p-3">
-                  <code className="text-xs text-muted-foreground flex-1 truncate">
-                    https://verifyid.app/check/{walletAddr.slice(0, 8)}
-                  </code>
-                  <ExternalLink className="h-4 w-4 text-muted-foreground shrink-0" />
-                </div>
+                <p className="text-sm font-medium">On-Chain Proof</p>
+                <a
+                  href={`https://explorer.solana.com/tx/${record.txSignature}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  View on Solana Explorer <ExternalLink className="h-3 w-3" />
+                </a>
               </div>
             )}
           </GlassCard>
@@ -112,6 +122,7 @@ const Dashboard = () => {
     wallet_address: walletAddr,
     status,
     verified_at: record?.timestamp || null,
+    tx_signature: record?.txSignature || null,
     chain: "solana",
     network: "devnet",
   },
