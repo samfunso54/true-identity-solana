@@ -33,7 +33,7 @@ const endpoints = [
     path: "/api/verify/{wallet_address}",
     desc: "Check the verification status of a wallet address.",
     methodColor: "bg-primary/20 text-primary border-primary/30",
-    request: `curl -X GET "https://api.verifyid.app/api/verify/7xKX...3nPq" \\
+    request: `curl -X GET "https://deephuman.lovable.app/api/verify/7xKX...3nPq" \\
   -H "Authorization: Bearer vdi_your_api_key"`,
     response: `{
   "wallet_address": "7xKX...3nPq",
