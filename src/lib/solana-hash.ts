@@ -96,7 +96,7 @@ export async function storeHashOnSolana(
   const instruction = new TransactionInstruction({
     keys: [{ pubkey: publicKey, isSigner: true, isWritable: false }],
     programId: MEMO_PROGRAM_ID,
-    data: Buffer.from(memoData),
+    data: Buffer.from(new TextEncoder().encode(memoData)),
   });
 
   const transaction = new Transaction().add(instruction);
