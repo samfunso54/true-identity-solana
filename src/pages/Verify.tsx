@@ -386,7 +386,7 @@ const Verify = () => {
                   Challenge {challengeIdx + 1} of {challenges.length}
                 </p>
                 {challengeTimeout && !detected[activeChallenge!] && (
-                  <p className="text-xs text-yellow-400 flex items-center justify-center gap-1">
+                  <p className="text-xs text-accent-foreground flex items-center justify-center gap-1">
                     <AlertCircle className="h-3 w-3" />
                     Taking a while? Make sure your face is well-lit and centered.
                   </p>
