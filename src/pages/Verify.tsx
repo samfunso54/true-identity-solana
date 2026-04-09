@@ -26,6 +26,7 @@ const Verify = () => {
   const { publicKey, connected, signTransaction } = useWallet();
   const { getStatus, setStatus, fetchStatus, persistVerification } = useVerification();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const walletAddr = publicKey?.toBase58() || "";
@@ -37,6 +38,7 @@ const Verify = () => {
   const [result, setResult] = useState<"verified" | "failed" | null>(null);
   const [hashResult, setHashResult] = useState<StoreHashResult | null>(null);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
+  const [snapshots, setSnapshots] = useState<string[]>([]);
 
   // Check backend status on mount
   useEffect(() => {
@@ -50,15 +52,35 @@ const Verify = () => {
     if (!connected) setStep("connect");
   }, [connected, step]);
 
+  // Attach stream to video element whenever the video element mounts or stream changes
+  useEffect(() => {
+    if (step === "challenge" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+    }
+  }, [step, challengeIdx]);
+
+  const captureSnapshot = useCallback((): string | null => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.videoWidth === 0) return null;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    // Mirror the image to match the mirrored video display
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0);
+    return canvas.toDataURL("image/jpeg", 0.8);
+  }, []);
+
   const startCamera = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
       setStep("challenge");
       setChallengeIdx(0);
+      setSnapshots([]);
     } catch {
       toast.error("Camera access denied. Please allow camera access to verify.");
     }
@@ -69,7 +91,7 @@ const Verify = () => {
     streamRef.current = null;
   }, []);
 
-  // Run through challenges
+  // Run through challenges — capture snapshot at end of each
   useEffect(() => {
     if (step !== "challenge") return;
     if (challengeIdx >= challenges.length) {
@@ -77,13 +99,17 @@ const Verify = () => {
       return;
     }
     const timer = setTimeout(() => {
+      const snap = captureSnapshot();
+      if (snap) {
+        setSnapshots((prev) => [...prev, snap]);
+      }
       setCompletedChallenges((prev) => [...prev, challenges[challengeIdx].id]);
       setChallengeIdx((i) => i + 1);
     }, challenges[challengeIdx].duration);
     return () => clearTimeout(timer);
-  }, [step, challengeIdx]);
+  }, [step, challengeIdx, captureSnapshot]);
 
-  // Processing — liveness always passes (server validates the challenge proof)
+  // Processing
   useEffect(() => {
     if (step !== "processing") return;
     setProgress(0);
@@ -115,7 +141,6 @@ const Verify = () => {
         const res = await storeHashOnSolana(hash, nonce, publicKey, signTransaction);
         if (cancelled) return;
 
-        // Persist to backend
         await persistVerification(walletAddr, res.signature, res.hash, res.nonce, challengeProof);
 
         setHashResult(res);
@@ -143,6 +168,7 @@ const Verify = () => {
     setHashResult(null);
     setChallengeIdx(0);
     setCompletedChallenges([]);
+    setSnapshots([]);
     setProgress(0);
     setStep("camera");
   };
@@ -166,6 +192,9 @@ const Verify = () => {
 
   return (
     <div className="min-h-screen pt-24 pb-12">
+      {/* Hidden canvas for snapshot capture */}
+      <canvas ref={canvasRef} className="hidden" />
+
       <div className="container max-w-2xl space-y-8">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold">Identity Verification</h1>
@@ -237,6 +266,23 @@ const Verify = () => {
                 <div className="absolute inset-0 border-2 border-primary/40 rounded-lg pointer-events-none" />
                 <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/60 animate-scan-line" />
               </div>
+
+              {/* Completed challenge snapshots */}
+              {snapshots.length > 0 && (
+                <div className="flex justify-center gap-3">
+                  {snapshots.map((snap, i) => (
+                    <div key={i} className="relative">
+                      <img
+                        src={snap}
+                        alt={`Challenge ${challenges[i]?.label} snapshot`}
+                        className="w-16 h-16 rounded-md object-cover border border-primary/30"
+                      />
+                      <CheckCircle className="absolute -top-1 -right-1 h-4 w-4 text-primary bg-background rounded-full" />
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div className="text-center space-y-3">
                 <div className="flex items-center justify-center gap-3 text-primary">
                   {(() => {
@@ -258,6 +304,23 @@ const Verify = () => {
               <Loader2 className="h-16 w-16 text-primary mx-auto animate-spin" />
               <h2 className="text-xl font-semibold">Analyzing Liveness</h2>
               <p className="text-sm text-muted-foreground">Running anti-deepfake verification…</p>
+
+              {/* Show all captured snapshots */}
+              {snapshots.length > 0 && (
+                <div className="flex justify-center gap-3">
+                  {snapshots.map((snap, i) => (
+                    <div key={i} className="relative">
+                      <img
+                        src={snap}
+                        alt={`${challenges[i]?.label} captured`}
+                        className="w-20 h-20 rounded-md object-cover border border-primary/30"
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-1 text-center">{challenges[i]?.label}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <Progress value={progress} className="h-3" />
               <p className="text-xs text-muted-foreground">{progress}%</p>
             </div>
