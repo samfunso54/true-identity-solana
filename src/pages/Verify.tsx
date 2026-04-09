@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-import { Camera, Eye, RotateCcw, Smile, CheckCircle, XCircle, Loader2, ExternalLink } from "lucide-react";
+import { Camera, Eye, RotateCcw, Smile, CheckCircle, XCircle, Loader2, ExternalLink, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/GlassCard";
 import { Progress } from "@/components/ui/progress";
@@ -9,13 +9,14 @@ import { useVerification, VerificationStatus } from "@/contexts/VerificationCont
 import { Link } from "react-router-dom";
 import { generateVerificationHash, storeHashOnSolana, StoreHashResult } from "@/lib/solana-hash";
 import { toast } from "sonner";
+import { useFaceDetection, ChallengeType } from "@/hooks/useFaceDetection";
 
-type Step = "connect" | "camera" | "challenge" | "processing" | "storing" | "result";
+type Step = "connect" | "camera" | "loading_models" | "challenge" | "processing" | "storing" | "result";
 
-const challenges = [
-  { id: "blink", label: "Blink twice", icon: Eye, duration: 4000 },
-  { id: "turn", label: "Turn head left", icon: RotateCcw, duration: 4000 },
-  { id: "smile", label: "Smile", icon: Smile, duration: 3000 },
+const challenges: { id: ChallengeType; label: string; icon: React.ComponentType<{ className?: string }>; instruction: string }[] = [
+  { id: "blink", label: "Blink twice", icon: Eye, instruction: "Look at the camera and blink your eyes twice" },
+  { id: "turn", label: "Turn head left", icon: RotateCcw, instruction: "Slowly turn your head to your left" },
+  { id: "smile", label: "Smile", icon: Smile, instruction: "Give the camera a natural smile" },
 ];
 
 function buildChallengeProof(completedChallenges: string[], wallet: string): string {
@@ -39,12 +40,24 @@ const Verify = () => {
   const [hashResult, setHashResult] = useState<StoreHashResult | null>(null);
   const [completedChallenges, setCompletedChallenges] = useState<string[]>([]);
   const [snapshots, setSnapshots] = useState<string[]>([]);
+  const [challengeTimeout, setChallengeTimeout] = useState(false);
+
+  const activeChallenge = step === "challenge" && challengeIdx < challenges.length
+    ? challenges[challengeIdx].id
+    : null;
+
+  const {
+    modelsLoaded,
+    loading: modelsLoading,
+    error: modelsError,
+    detected,
+    confidence,
+    resetDetection,
+  } = useFaceDetection(videoRef, activeChallenge, step === "challenge");
 
   // Check backend status on mount
   useEffect(() => {
-    if (walletAddr) {
-      fetchStatus(walletAddr);
-    }
+    if (walletAddr) fetchStatus(walletAddr);
   }, [walletAddr, fetchStatus]);
 
   useEffect(() => {
@@ -52,10 +65,48 @@ const Verify = () => {
     if (!connected) setStep("connect");
   }, [connected, step]);
 
-  // Attach stream to video element whenever the video element mounts or stream changes
+  // Attach stream to video element when challenge step mounts
   useEffect(() => {
     if (step === "challenge" && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
+    }
+  }, [step, challengeIdx]);
+
+  // When a challenge is detected, auto-advance after a short delay
+  useEffect(() => {
+    if (step !== "challenge" || !activeChallenge) return;
+    if (!detected[activeChallenge]) return;
+
+    const snap = captureSnapshot();
+    if (snap) setSnapshots((prev) => [...prev, snap]);
+
+    const timer = setTimeout(() => {
+      setCompletedChallenges((prev) => [...prev, activeChallenge]);
+      resetDetection();
+      setChallengeTimeout(false);
+      setChallengeIdx((i) => i + 1);
+    }, 500); // brief pause so user sees the green check
+
+    return () => clearTimeout(timer);
+  }, [step, activeChallenge, detected, resetDetection]);
+
+  // Challenge timeout — give user 15 seconds per challenge
+  useEffect(() => {
+    if (step !== "challenge" || !activeChallenge) return;
+    if (detected[activeChallenge]) return;
+    setChallengeTimeout(false);
+
+    const timer = setTimeout(() => {
+      setChallengeTimeout(true);
+    }, 15000);
+
+    return () => clearTimeout(timer);
+  }, [step, challengeIdx, activeChallenge, detected]);
+
+  // When all challenges done, move to processing
+  useEffect(() => {
+    if (step === "challenge" && challengeIdx >= challenges.length) {
+      setStep("processing");
     }
   }, [step, challengeIdx]);
 
@@ -67,7 +118,6 @@ const Verify = () => {
     canvas.height = video.videoHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
-    // Mirror the image to match the mirrored video display
     ctx.translate(canvas.width, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0);
@@ -78,38 +128,36 @@ const Verify = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
       streamRef.current = stream;
-      setStep("challenge");
-      setChallengeIdx(0);
-      setSnapshots([]);
+
+      if (!modelsLoaded) {
+        setStep("loading_models");
+      } else {
+        setStep("challenge");
+        setChallengeIdx(0);
+        setSnapshots([]);
+        resetDetection();
+      }
     } catch {
       toast.error("Camera access denied. Please allow camera access to verify.");
     }
-  }, []);
+  }, [modelsLoaded, resetDetection]);
+
+  // Move from loading_models to challenge once loaded
+  useEffect(() => {
+    if (step === "loading_models" && modelsLoaded) {
+      setStep("challenge");
+      setChallengeIdx(0);
+      setSnapshots([]);
+      resetDetection();
+    }
+  }, [step, modelsLoaded, resetDetection]);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   }, []);
 
-  // Run through challenges — capture snapshot at end of each
-  useEffect(() => {
-    if (step !== "challenge") return;
-    if (challengeIdx >= challenges.length) {
-      setStep("processing");
-      return;
-    }
-    const timer = setTimeout(() => {
-      const snap = captureSnapshot();
-      if (snap) {
-        setSnapshots((prev) => [...prev, snap]);
-      }
-      setCompletedChallenges((prev) => [...prev, challenges[challengeIdx].id]);
-      setChallengeIdx((i) => i + 1);
-    }, challenges[challengeIdx].duration);
-    return () => clearTimeout(timer);
-  }, [step, challengeIdx, captureSnapshot]);
-
-  // Processing
+  // Processing animation
   useEffect(() => {
     if (step !== "processing") return;
     setProgress(0);
@@ -170,6 +218,8 @@ const Verify = () => {
     setCompletedChallenges([]);
     setSnapshots([]);
     setProgress(0);
+    setChallengeTimeout(false);
+    resetDetection();
     setStep("camera");
   };
 
@@ -190,9 +240,11 @@ const Verify = () => {
     );
   }
 
+  const stepKeys: Step[] = ["connect", "camera", "challenge", "processing", "storing", "result"];
+  const stepLabels = ["Connect", "Camera", "Challenge", "Processing", "On-Chain", "Result"];
+
   return (
     <div className="min-h-screen pt-24 pb-12">
-      {/* Hidden canvas for snapshot capture */}
       <canvas ref={canvasRef} className="hidden" />
 
       <div className="container max-w-2xl space-y-8">
@@ -203,9 +255,9 @@ const Verify = () => {
 
         {/* Steps indicator */}
         <div className="flex items-center justify-center gap-2">
-          {["Connect", "Camera", "Challenge", "Processing", "On-Chain", "Result"].map((label, i) => {
-            const stepKeys: Step[] = ["connect", "camera", "challenge", "processing", "storing", "result"];
-            const idx = stepKeys.indexOf(step);
+          {stepLabels.map((label, i) => {
+            const currentStepForIndicator = step === "loading_models" ? "camera" : step;
+            const idx = stepKeys.indexOf(currentStepForIndicator);
             const isActive = i === idx;
             const isDone = i < idx;
             return (
@@ -251,20 +303,56 @@ const Verify = () => {
               <Camera className="h-16 w-16 text-primary" />
               <h2 className="text-xl font-semibold">Enable Camera</h2>
               <p className="text-muted-foreground text-center text-sm max-w-sm">
-                We'll use your camera for a quick liveness check. No images are stored.
+                We'll use your camera for a real-time liveness check using face detection AI. No images are stored.
               </p>
-              <Button onClick={startCamera} size="lg" className="gap-2">
+              {modelsError && (
+                <p className="text-destructive text-sm flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4" /> {modelsError}
+                </p>
+              )}
+              <Button onClick={startCamera} size="lg" className="gap-2" disabled={!!modelsError}>
                 <Camera className="h-4 w-4" /> Start Camera
               </Button>
             </>
           )}
 
+          {step === "loading_models" && (
+            <div className="text-center space-y-4">
+              <Loader2 className="h-16 w-16 text-primary mx-auto animate-spin" />
+              <h2 className="text-xl font-semibold">Loading Face Detection</h2>
+              <p className="text-sm text-muted-foreground">Downloading AI models for liveness detection…</p>
+              {modelsLoading && <Progress value={50} className="h-2 max-w-xs mx-auto animate-pulse" />}
+            </div>
+          )}
+
           {step === "challenge" && challengeIdx < challenges.length && (
-            <div className="w-full space-y-6">
+            <div className="w-full space-y-5">
               <div className="relative aspect-video max-w-md mx-auto rounded-lg overflow-hidden border border-border bg-muted">
                 <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover scale-x-[-1]" />
                 <div className="absolute inset-0 border-2 border-primary/40 rounded-lg pointer-events-none" />
                 <div className="absolute top-0 left-0 right-0 h-0.5 bg-primary/60 animate-scan-line" />
+
+                {/* Detection confidence indicator */}
+                {activeChallenge && (
+                  <div className="absolute bottom-2 left-2 right-2">
+                    <div className="bg-background/80 backdrop-blur-sm rounded-md p-2">
+                      <div className="flex items-center justify-between text-xs mb-1">
+                        <span className="text-muted-foreground">Detection confidence</span>
+                        <span className={`font-semibold ${detected[activeChallenge] ? "text-primary" : "text-foreground"}`}>
+                          {detected[activeChallenge] ? "✓ Detected!" : `${Math.round(confidence[activeChallenge] * 100)}%`}
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            detected[activeChallenge] ? "bg-primary" : "bg-primary/60"
+                          }`}
+                          style={{ width: `${detected[activeChallenge] ? 100 : confidence[activeChallenge] * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Completed challenge snapshots */}
@@ -292,8 +380,17 @@ const Verify = () => {
                   <span className="text-lg font-semibold">{challenges[challengeIdx].label}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
+                  {challenges[challengeIdx].instruction}
+                </p>
+                <p className="text-xs text-muted-foreground">
                   Challenge {challengeIdx + 1} of {challenges.length}
                 </p>
+                {challengeTimeout && !detected[activeChallenge!] && (
+                  <p className="text-xs text-yellow-400 flex items-center justify-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Taking a while? Make sure your face is well-lit and centered.
+                  </p>
+                )}
                 <Progress value={((challengeIdx + 1) / challenges.length) * 100} className="h-2 max-w-xs mx-auto" />
               </div>
             </div>
@@ -303,9 +400,8 @@ const Verify = () => {
             <div className="text-center space-y-6 w-full max-w-sm">
               <Loader2 className="h-16 w-16 text-primary mx-auto animate-spin" />
               <h2 className="text-xl font-semibold">Analyzing Liveness</h2>
-              <p className="text-sm text-muted-foreground">Running anti-deepfake verification…</p>
+              <p className="text-sm text-muted-foreground">All challenges passed. Finalizing verification…</p>
 
-              {/* Show all captured snapshots */}
               {snapshots.length > 0 && (
                 <div className="flex justify-center gap-3">
                   {snapshots.map((snap, i) => (
